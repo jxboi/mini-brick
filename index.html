@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini Bricks — Duck Builder</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div id="hud">
+      <header class="hud-header">
+        <h1>MINI BRICKS</h1>
+        <p class="subtitle">Make a Wise Life · Build the Duck</p>
+      </header>
+
+      <div class="mode-tabs" role="tablist">
+        <button id="tab-guided" class="mode-tab is-active" type="button">Guided</button>
+        <button id="tab-free" class="mode-tab" type="button">Free Build</button>
+      </div>
+
+      <!-- ================= Guided mode ================= -->
+      <div id="guided-mode">
+        <section class="hud-progress">
+          <div class="progress-row">
+            <span id="progress-label">0 / 0 bricks</span>
+            <span id="progress-percent">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div id="progress-fill"></div>
+          </div>
+        </section>
+
+        <section class="hud-next" id="next-panel">
+          <span class="next-caption">Next brick</span>
+          <div class="next-swatch-row">
+            <span id="next-swatch" class="next-swatch"></span>
+            <span id="next-color-name" class="next-color-name">—</span>
+          </div>
+          <p class="next-hint">Click the glowing slot to place it.</p>
+        </section>
+
+        <section class="hud-done" id="done-panel" hidden>
+          <span class="done-emoji">🎉</span>
+          <strong>Duck complete!</strong>
+          <p>Nicely built. Orbit around to admire it.</p>
+        </section>
+
+        <section class="hud-controls">
+          <button id="btn-place" type="button">Place Next <kbd>Space</kbd></button>
+          <button id="btn-undo" type="button">Undo <kbd>Z</kbd></button>
+          <button id="btn-auto" type="button">Auto-Build</button>
+          <button id="btn-preview" type="button">Show Preview</button>
+          <button id="btn-reset" type="button">Reset</button>
+        </section>
+      </div>
+
+      <!-- ================= Free Build mode ================= -->
+      <div id="free-mode" hidden>
+        <section class="hud-free-count">
+          <span id="free-count">0 bricks placed</span>
+        </section>
+
+        <section class="hud-palette">
+          <span class="next-caption">Pick a brick</span>
+          <div id="palette" class="palette"></div>
+        </section>
+
+        <section class="hud-shapes">
+          <span class="next-caption">Pick a shape</span>
+          <div id="shape-picker" class="shape-picker"></div>
+        </section>
+
+        <section class="hud-next">
+          <span class="next-caption">Selected</span>
+          <div class="next-swatch-row">
+            <span id="free-swatch" class="next-swatch"></span>
+            <span id="free-color-name" class="next-color-name">—</span>
+            <span id="free-shape-name" class="free-shape-name">1×1</span>
+          </div>
+          <p class="next-hint">Drag it onto the board to place it.</p>
+        </section>
+
+        <section class="hud-controls">
+          <button id="btn-free-rotate" type="button">Rotate <kbd>R</kbd></button>
+          <button id="btn-free-undo" type="button">Undo <kbd>Z</kbd></button>
+          <button id="btn-free-reset" type="button">Reset</button>
+          <button id="btn-guide" type="button">Show Duck Guide</button>
+        </section>
+      </div>
+
+      <footer class="hud-footer">
+        <span id="hud-hint">Click the glowing slot to place · Drag to orbit · Scroll to zoom</span>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
