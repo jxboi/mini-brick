@@ -165,6 +165,41 @@ export function createBrick(x, y, z, colorKey, cells = [{ dx: 0, dz: 0 }]) {
   return mesh;
 }
 
+// Cache one translucent material per color + opacity, shared by the guided
+// target preview and the free-build guide overlay.
+const previewMaterialCache = new Map();
+
+function previewMaterialFor(colorKey, opacity) {
+  const cacheKey = `${colorKey}|${opacity}`;
+  if (!previewMaterialCache.has(cacheKey)) {
+    const c = COLORS[colorKey] ?? COLORS.white;
+    previewMaterialCache.set(
+      cacheKey,
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(c.hex),
+        transparent: true,
+        opacity,
+        depthWrite: false
+      })
+    );
+  }
+  return previewMaterialCache.get(cacheKey);
+}
+
+/**
+ * A see-through brick used to show where a target model's pieces go.
+ *
+ * Both the geometry and the material come from module-level caches shared by
+ * every blueprint, so a group of these can simply be emptied and rebuilt when
+ * the selected model changes — there is nothing per-mesh to dispose. Keep it
+ * that way: allocating geometry or materials here would leak on every swap.
+ */
+export function createPreviewBrick(x, y, z, colorKey, cells = [{ dx: 0, dz: 0 }], opacity = 0.18) {
+  const mesh = new THREE.Mesh(geometryForCells(cells), previewMaterialFor(colorKey, opacity));
+  mesh.position.copy(cellToWorld(x, y, z));
+  return mesh;
+}
+
 /**
  * Creates the translucent "ghost" brick that marks where the next piece
  * goes. It pulses via `updateGhost` and tints to the upcoming color.

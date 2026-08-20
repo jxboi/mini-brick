@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import {
   createBrick,
   createGhost,
+  createPreviewBrick,
   setGhostShape,
   cellToWorld,
   shapeCells,
   SHAPES,
   COLORS
 } from './brick.js';
-import { DUCK_BLUEPRINT } from './blueprint.js';
+import { getBlueprint, DEFAULT_BLUEPRINT_ID } from './blueprints.js';
 
 /** Order the color swatches appear in the palette. */
 export const PALETTE = ['red', 'yellow', 'skyBlue', 'darkBlue', 'white', 'pink', 'black'];
@@ -16,8 +17,8 @@ export const PALETTE = ['red', 'yellow', 'skyBlue', 'darkBlue', 'white', 'pink',
 /**
  * Free-build sandbox mode: the player picks a color and drags a brick onto the
  * board to place it anywhere. Bricks snap to an integer grid and stack on top of
- * or beside existing bricks. Right-click removes. An optional translucent duck
- * overlay can be shown for inspiration.
+ * or beside existing bricks. Right-click removes. An optional translucent
+ * overlay of the model selected in guided mode can be shown for inspiration.
  *
  * Only one mode is "active" at a time; `setActive` toggles this mode's meshes.
  */
@@ -48,10 +49,11 @@ export class FreeBuilder {
     this.ghost.visible = false;
     scene.add(this.ghost);
 
-    // Optional translucent duck overlay to build along with.
-    this.guideGroup = this._buildGuide();
+    // Optional translucent overlay of the guided-mode model to build along with.
+    this.guideGroup = new THREE.Group();
     this.guideGroup.visible = false;
     scene.add(this.guideGroup);
+    this.setGuideBlueprint(getBlueprint(DEFAULT_BLUEPRINT_ID));
   }
 
   // ---- Subscription --------------------------------------------------------
@@ -78,7 +80,8 @@ export class FreeBuilder {
       shapeLabel: shape ? shape.label : null,
       canRotate: shape ? shape.w !== shape.d : false,
       rotation: this.rotation,
-      guideOn: this.guideOn
+      guideOn: this.guideOn,
+      guideName: this.guideEntry ? this.guideEntry.name : null
     };
   }
 
@@ -242,22 +245,20 @@ export class FreeBuilder {
     this.ghost.material.opacity = 0.34 + 0.2 * (0.5 + 0.5 * Math.sin(elapsed * 4));
   }
 
-  // ---- Internals -----------------------------------------------------------
-  _buildGuide() {
-    const group = new THREE.Group();
-    for (const entry of DUCK_BLUEPRINT) {
-      const c = COLORS[entry.color] ?? COLORS.white;
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(c.hex),
-        transparent: true,
-        opacity: 0.16,
-        depthWrite: false
-      });
-      const geo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(cellToWorld(entry.x, entry.y, entry.z));
-      group.add(mesh);
+  // ---- Guide overlay -------------------------------------------------------
+  /**
+   * Points the guide overlay at another catalog model, following whatever
+   * guided mode is building. The meshes use shared cached geometry/materials,
+   * so emptying the group is a complete teardown.
+   */
+  setGuideBlueprint(entry) {
+    this.guideEntry = entry;
+    this.guideGroup.clear();
+    for (const brick of entry.load().bricks) {
+      this.guideGroup.add(
+        createPreviewBrick(brick.x, brick.y, brick.z, brick.color, brick.cells, 0.16)
+      );
     }
-    return group;
+    this._emit();
   }
 }

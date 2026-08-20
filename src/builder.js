@@ -1,71 +1,65 @@
 import * as THREE from 'three';
-import { createBrick, createGhost, updateGhost, cellToWorld, COLORS } from './brick.js';
-import { DUCK_BLUEPRINT, TOTAL_BRICKS } from './blueprint.js';
+import {
+  createBrick,
+  createGhost,
+  createPreviewBrick,
+  setGhostShape,
+  updateGhost,
+  COLORS
+} from './brick.js';
+import { getBlueprint, DEFAULT_BLUEPRINT_ID } from './blueprints.js';
 
-/** Stable grid-cell key used for occupancy lookups. */
-function cellKey(x, y, z) {
-  return `${x},${y},${z}`;
+/** Seconds a full auto-build should take, whatever the model's size. */
+const AUTO_BUILD_BUDGET = 8;
+const AUTO_MIN_INTERVAL = 0.02;
+const AUTO_MAX_INTERVAL = 0.16;
+
+/** Largest frame step auto-build will honour, so a backgrounded tab can't
+ *  return with a multi-second delta and dump hundreds of bricks in one frame. */
+const MAX_AUTO_DELTA = 0.25;
+
+/** Seconds between auto placements for a model of `bricks` pieces. */
+export function autoIntervalFor(bricks) {
+  const interval = AUTO_BUILD_BUDGET / Math.max(bricks, 1);
+  return Math.min(AUTO_MAX_INTERVAL, Math.max(AUTO_MIN_INTERVAL, interval));
 }
-
-/**
- * Rectangular footprints auto-build may use, in descending area order. Each is
- * `[w, d]` (x-extent × z-extent) and comes from the shapes the app supports
- * (1×1 … 2×4), including their rotated orientations. Auto-build tries these in
- * order and places the first one that fits, so it always uses the largest brick.
- */
-const AUTO_FOOTPRINTS = [
-  [2, 4], [4, 2], // area 8
-  [2, 3], [3, 2], // area 6
-  [1, 4], [4, 1], [2, 2], // area 4
-  [1, 3], [3, 1], // area 3
-  [1, 2], [2, 1], // area 2
-  [1, 1] // area 1
-];
 
 /**
  * Drives the guided build: which brick is next, the pulsing ghost slot,
  * placing / undoing bricks, auto-build, reset, and the target preview.
  * Emits a state object to subscribers whenever anything changes.
+ *
+ * The build follows the selected model's brick plan — the same validated
+ * `solution` the dataset ships (see `src/toys/model.js`) — so each step places
+ * one real brick with its own footprint rather than a single 1x1 cell.
  */
 export class Builder {
-  constructor(scene) {
+  constructor(scene, entry = getBlueprint(DEFAULT_BLUEPRINT_ID)) {
     this.scene = scene;
-    this.blueprint = DUCK_BLUEPRINT;
-    this.total = TOTAL_BRICKS;
     this.listeners = new Set();
     this.active = true; // whether this mode is currently shown
     this.previewOn = false; // whether the target preview is toggled on
-
-    // Cell-occupancy state. Each blueprint entry is a single 1x1 cell; placed
-    // bricks may cover several cells (auto-build merges same-color neighbours).
-    this.placedSet = new Set(); // "x,y,z" keys already placed
-    this.placedCount = 0; // number of 1x1 cells placed (drives progress)
-    this.cellColor = new Map(); // "x,y,z" -> colorKey, for every buildable cell
-    for (const entry of this.blueprint) {
-      this.cellColor.set(cellKey(entry.x, entry.y, entry.z), entry.color);
-    }
-    this.nextEntry = null; // next unplaced cell, in blueprint order
 
     // Group holding placed bricks.
     this.placedGroup = new THREE.Group();
     this.placedMeshes = [];
     scene.add(this.placedGroup);
 
-    // Ghost marking the next slot (also the raycast target for clicks).
+    // Ghost marking the next brick (also the raycast target for clicks).
     this.ghost = createGhost();
     scene.add(this.ghost);
 
-    // Translucent preview of the full target (toggleable).
-    this.previewGroup = this._buildPreview();
+    // Translucent preview of the full target (toggleable). Rebuilt per model.
+    this.previewGroup = new THREE.Group();
     this.previewGroup.visible = false;
     scene.add(this.previewGroup);
 
     // Auto-build state.
     this.autoBuilding = false;
     this._autoTimer = 0;
-    this._autoInterval = 0.16; // seconds between auto placements
+    this._autoInterval = AUTO_MAX_INTERVAL;
 
-    this._refreshGhost();
+    this.setBlueprint(entry);
   }
 
   // ---- Subscription --------------------------------------------------------
@@ -81,12 +75,17 @@ export class Builder {
   }
 
   getState() {
-    const nextEntry = this.nextEntry;
-    const color = nextEntry ? COLORS[nextEntry.color] : null;
+    const nextBrick = this.nextBrick;
+    const color = nextBrick ? COLORS[nextBrick.color] : null;
     return {
-      placed: this.placedCount,
+      blueprintId: this.entry.id,
+      blueprintName: this.entry.name,
+      size: this.size,
+      placed: this.stepIndex,
       total: this.total,
-      done: this.placedCount >= this.total,
+      cells: this.placedCells,
+      totalCells: this.entry.cellCount,
+      done: this.stepIndex >= this.total,
       autoBuilding: this.autoBuilding,
       previewOn: this.previewOn,
       nextColorName: color ? color.name : null,
@@ -94,23 +93,28 @@ export class Builder {
     };
   }
 
-  // ---- Core actions --------------------------------------------------------
-  placeNext() {
-    if (!this.nextEntry) return false;
-    const entry = this.nextEntry;
-    this._placeBrick(entry, [{ dx: 0, dz: 0 }]);
+  // ---- Blueprint selection -------------------------------------------------
+  /**
+   * Switches to another model from the catalog: loads its brick plan, clears
+   * whatever was on the board, and rebuilds the target preview.
+   */
+  setBlueprint(entry) {
+    const { bricks, size } = entry.load();
+    this.entry = entry;
+    this.plan = bricks;
+    this.size = size;
+    this.total = bricks.length;
+    this._autoInterval = autoIntervalFor(this.total);
+
+    this._clearPlacement();
+    this._rebuildPreview();
     this._refreshGhost();
     this._emit();
-    return true;
   }
 
-  // Auto-build placement: cover the next unplaced cell with the largest brick
-  // that fits (same colour + same layer + all cells still open).
-  autoPlaceNext() {
-    if (!this.nextEntry) return false;
-    const entry = this.nextEntry;
-    const cells = this._bestFootprint(entry);
-    this._placeBrick(entry, cells);
+  // ---- Core actions --------------------------------------------------------
+  placeNext() {
+    if (!this._placeStep()) return false;
     this._refreshGhost();
     this._emit();
     return true;
@@ -120,10 +124,8 @@ export class Builder {
     if (this.placedMeshes.length === 0) return false;
     const mesh = this.placedMeshes.pop();
     this.placedGroup.remove(mesh);
-    for (const cell of mesh.userData.cells) {
-      this.placedSet.delete(cellKey(cell.x, cell.y, cell.z));
-      this.placedCount--;
-    }
+    this.stepIndex--;
+    this.placedCells -= mesh.userData.cells.length;
     this.autoBuilding = false;
     this._refreshGhost();
     this._emit();
@@ -131,17 +133,13 @@ export class Builder {
   }
 
   reset() {
-    for (const mesh of this.placedMeshes) this.placedGroup.remove(mesh);
-    this.placedMeshes = [];
-    this.placedSet.clear();
-    this.placedCount = 0;
-    this.autoBuilding = false;
+    this._clearPlacement();
     this._refreshGhost();
     this._emit();
   }
 
   toggleAutoBuild() {
-    if (this.placedCount >= this.total) return;
+    if (this.stepIndex >= this.total) return;
     this.autoBuilding = !this.autoBuilding;
     this._autoTimer = 0;
     this._emit();
@@ -169,95 +167,74 @@ export class Builder {
   // ---- Frame update --------------------------------------------------------
   update(elapsed, delta) {
     if (!this.active) return;
-    updateGhost(this.ghost, this.nextEntry, elapsed);
+    updateGhost(this.ghost, this.nextBrick, elapsed);
 
-    if (this.autoBuilding) {
-      this._autoTimer += delta;
-      while (this._autoTimer >= this._autoInterval && this.autoBuilding) {
-        this._autoTimer -= this._autoInterval;
-        const placed = this.autoPlaceNext();
-        if (!placed) {
-          this.autoBuilding = false;
-          this._emit();
-        }
-      }
+    if (!this.autoBuilding) return;
+
+    // Place as many bricks as the elapsed time allows, then emit once. A model
+    // can run to 450 bricks, and emitting per placement would re-run the whole
+    // HUD update that many times.
+    this._autoTimer += Math.min(delta, MAX_AUTO_DELTA);
+    let placed = 0;
+    while (this._autoTimer >= this._autoInterval && this.autoBuilding) {
+      this._autoTimer -= this._autoInterval;
+      if (this._placeStep()) placed++;
+      else this.autoBuilding = false;
     }
+    if (placed === 0 && this.autoBuilding) return;
+    this._refreshGhost();
+    this._emit();
   }
 
   // ---- Internals -----------------------------------------------------------
-  _placeBrick(entry, cells) {
-    const mesh = createBrick(entry.x, entry.y, entry.z, entry.color, cells);
+  /** Places the next brick of the plan. Does not refresh the ghost or emit. */
+  _placeStep() {
+    const brick = this.plan[this.stepIndex];
+    if (!brick) return false;
+    const mesh = createBrick(brick.x, brick.y, brick.z, brick.color, brick.cells);
     this.placedGroup.add(mesh);
     this.placedMeshes.push(mesh);
-    for (const cell of mesh.userData.cells) {
-      this.placedSet.add(cellKey(cell.x, cell.y, cell.z));
-      this.placedCount++;
-    }
+    this.stepIndex++;
+    this.placedCells += brick.cells.length;
+    return true;
   }
 
-  // First blueprint cell (bottom-up, front→back, left→right) still open.
-  _computeNext() {
-    this.nextEntry = null;
-    for (const entry of this.blueprint) {
-      if (!this.placedSet.has(cellKey(entry.x, entry.y, entry.z))) {
-        this.nextEntry = entry;
-        return;
-      }
-    }
-  }
-
-  // Largest supported footprint that fits at `anchor`: every covered cell must
-  // exist, share the anchor's colour, and still be unplaced. The rectangle
-  // grows +x (right) and −z (toward the back) from the anchor corner.
-  _bestFootprint(anchor) {
-    for (const [w, d] of AUTO_FOOTPRINTS) {
-      const cells = [];
-      let fits = true;
-      for (let i = 0; i < d && fits; i++) {
-        for (let j = 0; j < w && fits; j++) {
-          const key = cellKey(anchor.x + j, anchor.y, anchor.z - i);
-          if (this.placedSet.has(key) || this.cellColor.get(key) !== anchor.color) {
-            fits = false;
-          } else {
-            cells.push({ dx: j, dz: -i });
-          }
-        }
-      }
-      if (fits) return cells;
-    }
-    return [{ dx: 0, dz: 0 }];
+  _clearPlacement() {
+    for (const mesh of this.placedMeshes) this.placedGroup.remove(mesh);
+    this.placedMeshes = [];
+    this.stepIndex = 0;
+    this.placedCells = 0;
+    this.autoBuilding = false;
+    this._autoTimer = 0;
   }
 
   _refreshGhost() {
-    this._computeNext();
-    updateGhost(this.ghost, this.nextEntry, 0);
+    this.nextBrick = this.plan[this.stepIndex] ?? null;
+    if (this.nextBrick) setGhostShape(this.ghost, this.nextBrick.cells);
+    updateGhost(this.ghost, this.nextBrick, 0);
     this._syncPreview();
   }
 
   _syncPreview() {
     if (!this.previewGroup.visible) return;
-    // Show only cells that haven't been placed yet.
-    for (const child of this.previewGroup.children) {
-      child.visible = !this.placedSet.has(child.userData.key);
-    }
+    // Show only the bricks that haven't been placed yet.
+    const children = this.previewGroup.children;
+    for (let i = 0; i < children.length; i++) children[i].visible = i >= this.stepIndex;
   }
 
-  _buildPreview() {
-    const group = new THREE.Group();
-    for (const entry of this.blueprint) {
-      const c = COLORS[entry.color] ?? COLORS.white;
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(c.hex),
-        transparent: true,
-        opacity: 0.18,
-        depthWrite: false
-      });
-      const geo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(cellToWorld(entry.x, entry.y, entry.z));
-      mesh.userData.key = cellKey(entry.x, entry.y, entry.z);
-      group.add(mesh);
+  /**
+   * Rebuilds the translucent target. `createPreviewBrick` hands back meshes
+   * backed entirely by shared geometry and material caches, so emptying the
+   * group is a complete teardown — there is nothing per-mesh to dispose.
+   */
+  _rebuildPreview() {
+    this.previewGroup.clear();
+    for (const brick of this.plan) {
+      this.previewGroup.add(
+        createPreviewBrick(brick.x, brick.y, brick.z, brick.color, brick.cells, 0.18)
+      );
     }
-    return group;
+    this.previewGroup.visible = this.previewOn && this.active;
+    this._syncPreview();
   }
 }

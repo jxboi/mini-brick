@@ -74,6 +74,46 @@ export function createScene(canvas) {
 }
 
 /**
+ * Frames a model of the given cell size: pulls the camera back far enough for
+ * the whole structure to fit, raises the orbit target to its mid-height, and
+ * re-derives the fog band from that distance.
+ *
+ * The fog matters more than it looks. It is authored for the 5x5x11 duck, and a
+ * 16x16x16 toy has to be framed from roughly twice as far back — far enough to
+ * sit inside the original band and wash out. Tying `near`/`far` to the fit
+ * distance keeps the same sense of depth at every model size.
+ *
+ * The current viewing direction is preserved, so re-framing never spins the
+ * board round on the player.
+ */
+export function frameStructure(camera, controls, scene, size) {
+  const radius = 0.5 * Math.hypot(Math.max(size.width, size.depth), size.height);
+  const vFov = (camera.fov * Math.PI) / 180;
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  // Margin so the baseplate and a little sky stay in shot rather than the
+  // model filling the frame edge to edge.
+  const fit = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.35;
+  const distance = Math.min(Math.max(fit, controls.minDistance + 2), 60);
+
+  controls.maxDistance = Math.max(48, distance * 1.6);
+
+  const direction = camera.position.clone().sub(controls.target);
+  if (direction.lengthSq() < 1e-6) direction.set(0.55, 0.5, 0.7);
+  direction.normalize();
+
+  controls.target.set(0, size.height * 0.45, 0);
+  camera.position.copy(controls.target).addScaledVector(direction, distance);
+  controls.update();
+
+  if (scene.fog) {
+    // The 24-cell baseplate is always in frame, so keep a wide band around the
+    // model rather than hugging it.
+    scene.fog.near = distance + 12;
+    scene.fog.far = distance + 48;
+  }
+}
+
+/**
  * A large green studded baseplate centered at the origin, sitting so its top
  * surface is at y = 0 (bricks stack upward from there).
  */

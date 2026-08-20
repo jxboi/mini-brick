@@ -12,7 +12,7 @@
     <div id="hud">
       <header class="hud-header">
         <h1>MINI BRICKS</h1>
-        <p class="subtitle">Make a Wise Life · Build the Duck</p>
+        <p class="subtitle">Make a Wise Life · Pick a Model, Build It</p>
       </header>
 
       <div class="mode-tabs" role="tablist">
@@ -23,6 +23,15 @@
 
       <!-- ================= Guided mode ================= -->
       <div id="guided-mode">
+        <section class="hud-model">
+          <span class="next-caption">Model</span>
+          <select id="blueprint-select" class="model-select"></select>
+          <div class="model-detail">
+            <img id="blueprint-thumb" class="model-thumb" alt="" loading="lazy" hidden />
+            <p id="blueprint-meta" class="model-meta">—</p>
+          </div>
+        </section>
+
         <section class="hud-progress">
           <div class="progress-row">
             <span id="progress-label">0 / 0 bricks</span>
@@ -44,7 +53,7 @@
 
         <section class="hud-done" id="done-panel" hidden>
           <span class="done-emoji">🎉</span>
-          <strong>Duck complete!</strong>
+          <strong id="done-title">Complete!</strong>
           <p>Nicely built. Orbit around to admire it.</p>
         </section>
 
@@ -87,7 +96,7 @@
           <button id="btn-free-rotate" type="button">Rotate <kbd>R</kbd></button>
           <button id="btn-free-undo" type="button">Undo <kbd>Z</kbd></button>
           <button id="btn-free-reset" type="button">Reset</button>
-          <button id="btn-guide" type="button">Show Duck Guide</button>
+          <button id="btn-guide" type="button">Show Guide</button>
         </section>
       </div>
 

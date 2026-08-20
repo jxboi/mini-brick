@@ -22,6 +22,9 @@ const CHAR = {
   P: 'pink'
 };
 
+/** Character marking an empty cell inside a layer row. */
+const EMPTY = '.';
+
 // Ordered list of layers, bottom (y = 0) first.
 const LAYERS = [
   // y = 0 — yellow feet pointing forward + white body base behind them
@@ -132,6 +135,56 @@ const LAYERS = [
     ]
   }
 ];
+
+/** Uniform grid the padded duck layers are expressed in. */
+const DUCK_SIZE = Object.freeze({
+  width: Math.max(...LAYERS.flatMap((layer) => layer.rows.map((row) => row.length))),
+  height: LAYERS.length,
+  depth: Math.max(...LAYERS.map((layer) => layer.rows.length))
+});
+
+/**
+ * Centre-pads every authored layer onto one `width × depth` grid.
+ *
+ * Layers are authored at their natural size (5x5 for the head, 3x3 for the hat)
+ * and auto-centered, so padding reproduces that centering explicitly. Every
+ * authored dimension is odd, so each pad is even and no layer drifts by half a
+ * cell.
+ */
+function padLayers({ width, depth }) {
+  return LAYERS.map((layer) => {
+    const padZ = (depth - layer.rows.length) / 2;
+    const rows = [];
+    for (let r = 0; r < depth; r++) {
+      const source = layer.rows[r - padZ];
+      if (!source) {
+        rows.push(EMPTY.repeat(width));
+        continue;
+      }
+      const padX = (width - source.length) / 2;
+      rows.push(EMPTY.repeat(padX) + source + EMPTY.repeat(width - source.length - padX));
+    }
+    return rows;
+  });
+}
+
+/**
+ * The duck expressed in the same record shape as a voxelized toy in
+ * `src/toys/models.data.js`: one uniform grid of ASCII layers, bottom-up, rows
+ * front-to-back. That lets `planBuild()` / `solutionBricks()` in
+ * `src/toys/model.js` tile and render the duck through exactly the same code
+ * path as every toy, so the app has one blueprint format rather than two.
+ *
+ * Unlike a voxelized toy it is hand-authored, so a few cells (the beak, the
+ * arm stubs) float without a cell underneath them — fine to build, but it will
+ * not pass `validateSolution()`'s support check.
+ */
+export const DUCK_MODEL = Object.freeze({
+  id: 'duck',
+  source: null,
+  size: DUCK_SIZE,
+  layers: padLayers(DUCK_SIZE)
+});
 
 /**
  * Flattens the authored layers into an ordered array of brick descriptors:
