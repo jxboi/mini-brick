@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mini Bricks — Duck Builder</title>
+    <title>Mini Bricks — DQN Agent Lab</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -18,6 +18,7 @@
       <div class="mode-tabs" role="tablist">
         <button id="tab-guided" class="mode-tab is-active" type="button">Guided</button>
         <button id="tab-free" class="mode-tab" type="button">Free Build</button>
+        <button id="tab-agent" class="mode-tab" type="button">Agent Lab</button>
       </div>
 
       <!-- ================= Guided mode ================= -->
@@ -87,6 +88,71 @@
           <button id="btn-free-undo" type="button">Undo <kbd>Z</kbd></button>
           <button id="btn-free-reset" type="button">Reset</button>
           <button id="btn-guide" type="button">Show Duck Guide</button>
+        </section>
+      </div>
+
+      <!-- ================= Agent Lab mode ================= -->
+      <div id="agent-mode" hidden>
+        <section class="agent-intro">
+          <div class="agent-status-row">
+            <span id="agent-status-dot" class="agent-status-dot"></span>
+            <strong id="agent-status">Ready to learn</strong>
+          </div>
+          <p>A DQN learns progressively harder supported voxel structures through trial and error.</p>
+        </section>
+
+        <section class="hud-progress">
+          <div class="progress-row">
+            <span id="agent-episode">Episode 0 / 30,000</span>
+            <span id="agent-progress-percent">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div id="agent-progress-fill" class="progress-fill"></div>
+          </div>
+        </section>
+
+        <section class="agent-live-grid">
+          <div><span>Epsilon</span><strong id="agent-epsilon">1.00</strong></div>
+          <div><span>Reward · 100</span><strong id="agent-reward">0.00</strong></div>
+          <div><span>Success · 100</span><strong id="agent-success">0%</strong></div>
+        </section>
+
+        <section class="agent-chart-panel">
+          <div class="agent-chart-header">
+            <span class="next-caption">Learning curve</span>
+            <span class="agent-chart-legend"><i></i> success <i></i> reward</span>
+          </div>
+          <canvas id="agent-chart" width="260" height="104"></canvas>
+        </section>
+
+        <section id="agent-results" class="agent-results" hidden>
+          <div id="agent-verdict" class="agent-verdict">Waiting for evaluation</div>
+          <div class="agent-result-grid">
+            <div><span>Seen</span><strong id="agent-seen">—</strong></div>
+            <div><span>Unseen</span><strong id="agent-unseen">—</strong></div>
+            <div><span>Random</span><strong id="agent-random">—</strong></div>
+          </div>
+          <div class="agent-tier-heading">Unseen by difficulty</div>
+          <div class="agent-result-grid agent-tier-grid">
+            <div><span>Easy</span><strong id="agent-unseen-easy">—</strong></div>
+            <div><span>Medium</span><strong id="agent-unseen-medium">—</strong></div>
+            <div><span>Hard</span><strong id="agent-unseen-hard">—</strong></div>
+          </div>
+          <p id="agent-result-detail" class="agent-result-detail"></p>
+        </section>
+
+        <section class="agent-playback">
+          <div>
+            <span id="agent-target-label">Unseen target 1 of 100</span>
+            <small id="agent-playback-text">Target preview</small>
+          </div>
+        </section>
+
+        <section class="hud-controls agent-controls">
+          <button id="btn-agent-train" type="button">Train Agent</button>
+          <button id="btn-agent-stop" type="button" disabled>Stop</button>
+          <button id="btn-agent-run" type="button" disabled>Run Unseen</button>
+          <button id="btn-agent-next" type="button">Next Target</button>
         </section>
       </div>
 

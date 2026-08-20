@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { Builder } from './builder.js';
 import { FreeBuilder } from './freebuilder.js';
+import { AgentLab } from './agentlab.js';
 import { createUI } from './ui.js';
 import { CELL } from './brick.js';
 
@@ -10,12 +11,14 @@ const { renderer, scene, camera, controls } = createScene(canvas);
 
 const guided = new Builder(scene);
 const free = new FreeBuilder(scene);
+const agent = new AgentLab(scene);
 
 // Start in guided mode; hide the free-build meshes until selected.
 guided.setActive(true);
 free.setActive(false);
+agent.setActive(false);
 
-const ui = createUI(guided, free);
+const ui = createUI(guided, free, agent);
 
 // ---- Shared raycasting -----------------------------------------------------
 const raycaster = new THREE.Raycaster();
@@ -143,6 +146,7 @@ function animate() {
 
   guided.update(elapsed, delta);
   free.update(elapsed);
+  agent.update(elapsed, delta);
   controls.update();
   renderer.render(scene, camera);
 }

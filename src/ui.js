@@ -2,11 +2,10 @@ import { COLORS, SHAPES } from './brick.js';
 import { PALETTE } from './freebuilder.js';
 
 /**
- * Wires the HTML HUD to both builders and manages switching between the
- * "Guided" duck build and the "Free Build" sandbox. Returns `{ getMode }` so the
+ * Wires the HTML HUD to all three modes. Returns `{ getMode }` so the
  * interaction layer (main.js) can route pointer / drag events to the right mode.
  */
-export function createUI(guided, free) {
+export function createUI(guided, free, agent) {
   const $ = (id) => document.getElementById(id);
 
   // ---- Mode switching ------------------------------------------------------
@@ -15,8 +14,10 @@ export function createUI(guided, free) {
   const el = {
     tabGuided: $('tab-guided'),
     tabFree: $('tab-free'),
+    tabAgent: $('tab-agent'),
     guidedPanel: $('guided-mode'),
     freePanel: $('free-mode'),
+    agentPanel: $('agent-mode'),
     hint: $('hud-hint'),
 
     // Guided
@@ -43,29 +44,62 @@ export function createUI(guided, free) {
     btnFreeRotate: $('btn-free-rotate'),
     btnFreeUndo: $('btn-free-undo'),
     btnFreeReset: $('btn-free-reset'),
-    btnGuide: $('btn-guide')
+    btnGuide: $('btn-guide'),
+
+    // Agent Lab
+    agentStatus: $('agent-status'),
+    agentStatusDot: $('agent-status-dot'),
+    agentEpisode: $('agent-episode'),
+    agentProgressPercent: $('agent-progress-percent'),
+    agentProgressFill: $('agent-progress-fill'),
+    agentEpsilon: $('agent-epsilon'),
+    agentReward: $('agent-reward'),
+    agentSuccess: $('agent-success'),
+    agentChart: $('agent-chart'),
+    agentResults: $('agent-results'),
+    agentVerdict: $('agent-verdict'),
+    agentSeen: $('agent-seen'),
+    agentUnseen: $('agent-unseen'),
+    agentRandom: $('agent-random'),
+    agentUnseenEasy: $('agent-unseen-easy'),
+    agentUnseenMedium: $('agent-unseen-medium'),
+    agentUnseenHard: $('agent-unseen-hard'),
+    agentResultDetail: $('agent-result-detail'),
+    agentTargetLabel: $('agent-target-label'),
+    agentPlaybackText: $('agent-playback-text'),
+    btnAgentTrain: $('btn-agent-train'),
+    btnAgentStop: $('btn-agent-stop'),
+    btnAgentRun: $('btn-agent-run'),
+    btnAgentNext: $('btn-agent-next')
   };
 
   const HINTS = {
     guided: 'Click the glowing slot to place · Drag to orbit · Scroll to zoom',
-    free: 'Drag a color or shape onto the board · R to rotate while dragging · Right-click to remove'
+    free: 'Drag a color or shape onto the board · R to rotate while dragging · Right-click to remove',
+    agent: 'Train live in your browser · Watch the DQN build targets it never trained on'
   };
 
   function setMode(next) {
     if (next === mode) return;
     mode = next;
     const isGuided = mode === 'guided';
+    const isFree = mode === 'free';
+    const isAgent = mode === 'agent';
     el.guidedPanel.hidden = !isGuided;
-    el.freePanel.hidden = isGuided;
+    el.freePanel.hidden = !isFree;
+    el.agentPanel.hidden = !isAgent;
     el.tabGuided.classList.toggle('is-active', isGuided);
-    el.tabFree.classList.toggle('is-active', !isGuided);
+    el.tabFree.classList.toggle('is-active', isFree);
+    el.tabAgent.classList.toggle('is-active', isAgent);
     el.hint.textContent = HINTS[mode];
     guided.setActive(isGuided);
-    free.setActive(!isGuided);
+    free.setActive(isFree);
+    agent.setActive(isAgent);
   }
 
   el.tabGuided.addEventListener('click', () => setMode('guided'));
   el.tabFree.addEventListener('click', () => setMode('free'));
+  el.tabAgent.addEventListener('click', () => setMode('agent'));
 
   // ---- Guided panel --------------------------------------------------------
   guided.onChange((state) => {
@@ -178,6 +212,99 @@ export function createUI(guided, free) {
   el.btnFreeReset.addEventListener('click', () => free.reset());
   el.btnGuide.addEventListener('click', () => free.toggleGuide());
 
+  // ---- Agent Lab panel -----------------------------------------------------
+  function percent(value) {
+    return `${Math.round((value ?? 0) * 100)}%`;
+  }
+
+  function drawLearningCurve(points) {
+    const canvas = el.agentChart;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const pad = 9;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = 'rgba(255,255,255,0.035)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const y = pad + ((height - pad * 2) * i) / 4;
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(width - pad, y);
+      ctx.stroke();
+    }
+    if (points.length < 2) return;
+
+    const rewards = points.map((point) => point.reward);
+    const rewardMin = Math.min(...rewards);
+    const rewardMax = Math.max(...rewards);
+    const xFor = (index) => pad + (index / (points.length - 1)) * (width - pad * 2);
+
+    function line(color, valueFor) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const normalized = Math.min(1, Math.max(0, valueFor(point)));
+        const x = xFor(index);
+        const y = height - pad - normalized * (height - pad * 2);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    line('#ffd23f', (point) => point.success);
+    line('#4ea8de', (point) =>
+      rewardMax === rewardMin ? 0.5 : (point.reward - rewardMin) / (rewardMax - rewardMin)
+    );
+  }
+
+  agent.onChange((state) => {
+    const progress = state.totalEpisodes ? state.episode / state.totalEpisodes : 0;
+    const busy = ['training', 'evaluating', 'stopping'].includes(state.status);
+    el.agentStatus.textContent = state.statusText;
+    el.agentStatusDot.dataset.status = state.status;
+    el.agentEpisode.textContent = `Episode ${state.episode.toLocaleString()} / ${state.totalEpisodes.toLocaleString()}`;
+    el.agentProgressPercent.textContent = percent(progress);
+    el.agentProgressFill.style.width = percent(progress);
+    el.agentEpsilon.textContent = state.epsilon.toFixed(2);
+    el.agentReward.textContent = state.rollingReward.toFixed(2);
+    el.agentSuccess.textContent = percent(state.rollingSuccess);
+    el.agentTargetLabel.textContent = state.targetLabel;
+    el.agentPlaybackText.textContent = state.playbackText;
+    el.btnAgentTrain.disabled = busy;
+    el.btnAgentTrain.textContent = state.trained ? 'Train Again' : 'Train Agent';
+    el.btnAgentStop.disabled = !busy || state.status === 'stopping';
+    el.btnAgentRun.disabled = !state.trained;
+    drawLearningCurve(state.curve);
+
+    const metrics = state.metrics;
+    el.agentResults.hidden = !metrics;
+    if (metrics) {
+      el.agentVerdict.textContent = metrics.pass ? 'PASS · Generalizes' : 'NEEDS MORE TRAINING';
+      el.agentVerdict.classList.toggle('is-pass', metrics.pass);
+      el.agentVerdict.classList.toggle('is-fail', !metrics.pass);
+      el.agentSeen.textContent = percent(metrics.seen.successRate);
+      el.agentUnseen.textContent = percent(metrics.unseen.successRate);
+      el.agentRandom.textContent = percent(metrics.random.successRate);
+      el.agentUnseenEasy.textContent = percent(metrics.unseenByDifficulty.easy.successRate);
+      el.agentUnseenMedium.textContent = percent(metrics.unseenByDifficulty.medium.successRate);
+      el.agentUnseenHard.textContent = percent(metrics.unseenByDifficulty.hard.successRate);
+      el.agentResultDetail.textContent =
+        `${percent(metrics.unseen.averageCoverage)} unseen coverage · ` +
+        `${percent(metrics.unseen.placementPrecision)} placement precision · ` +
+        `${(metrics.elapsedMs / 1000).toFixed(1)}s`;
+    }
+  });
+
+  el.btnAgentTrain.addEventListener('click', () => agent.startTraining());
+  el.btnAgentStop.addEventListener('click', () => agent.stopTraining());
+  el.btnAgentRun.addEventListener('click', () => agent.runUnseen());
+  el.btnAgentNext.addEventListener('click', () => agent.nextTarget());
+
   // ---- Keyboard shortcuts --------------------------------------------------
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
@@ -185,7 +312,8 @@ export function createUI(guided, free) {
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
     if (e.code === 'KeyM') {
-      setMode(mode === 'guided' ? 'free' : 'guided');
+      const modes = ['guided', 'free', 'agent'];
+      setMode(modes[(modes.indexOf(mode) + 1) % modes.length]);
       return;
     }
 
@@ -213,6 +341,8 @@ export function createUI(guided, free) {
       }
       return;
     }
+
+    if (mode !== 'free') return;
 
     // Free mode.
     switch (e.code) {
