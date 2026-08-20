@@ -152,13 +152,16 @@ export async function trainDQN({
   episodes = TRAINING_DEFAULTS.episodes,
   onProgress = () => {},
   cancellation = { cancelled: false },
-  agent: providedAgent = null
+  agent: providedAgent = null,
+  datasets: providedDatasets = null
 } = {}) {
   await tf.setBackend('cpu');
   await tf.ready();
 
   const startedAt = performance.now();
-  const datasets = createTargetDatasets(seed);
+  // Defaults to the seeded synthetic skylines; pass `datasets` to train on
+  // another corpus with the same shape, such as `createToyTargetDatasets()`.
+  const datasets = providedDatasets ?? createTargetDatasets(seed);
   const rng = createRng(`${seed}:training`);
   const agent = providedAgent ?? new DQNAgent({
     seed: hashSeed(seed),

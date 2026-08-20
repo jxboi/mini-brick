@@ -81,6 +81,73 @@ and run time remain visible even when the threshold is missed.
 Training continues if another mode is selected. Agent Lab rendering and rollout
 animation pause until its tab is visible again.
 
+## Toy dataset — photos → voxels → bricks
+
+`assets/toys/` holds 100 photos of mini-brick toys. `npm run voxelize` turns
+each one into a voxel model plus an ordered brick-placement solution and writes
+them all to `src/toys/models.data.js`, in the same layer-by-layer form
+`src/blueprint.js` uses for the duck. The current run keeps **89 models**
+(90,024 voxels, 24,429 bricks) and rejects 11 images that are packaging artwork
+rather than an isolated toy.
+
+### Pipeline
+
+1. **Segment** — the near-white studio backdrop is estimated from a border
+   frame; foreground is color distance plus Sobel edge energy, so white toys
+   still register. The largest blob is kept and its holes filled, which drops
+   watermarks, price tags, and background props.
+2. **Sample** — the blob is rasterized into a grid at most 16 cells on its long
+   side. A cell fills when half its pixels are foreground and takes the average
+   pixel color, quantized to the seven palette colors in `src/brick.js`.
+3. **Extrude** — one photo has no depth information, so depth is invented: every
+   horizontal run of the silhouette is revolved about its own vertical axis, so
+   a round head becomes a ball and a thin antenna stays thin. The model's front
+   view always matches the photo.
+4. **Support** — a cell is dropped underneath anything floating until it reaches
+   the baseplate, giving the model the same support rule `VoxelEnvironment`
+   enforces. About 30% of the stored voxels are support the photo did not ask
+   for; `supportCount` records how many per model.
+5. **Tile** — each layer is greedily packed into 1×1 … 2×4 bricks of one color,
+   bottom-up, the same way guided auto-build merges neighbours.
+6. **Downsample** — column heights are reduced to the 4×4×4 skyline the Agent
+   Lab DQN trains on.
+
+Every stored solution is re-validated on load in `tests/toys.test.js`: bricks
+land in bounds, on empty cells, on top of something already placed, in the
+model's color, and together cover the model exactly.
+
+### Using the data
+
+```js
+import { toyBlueprint, toyBuildPlan, createToyTargetDatasets } from './src/toys/dataset.js';
+
+toyBlueprint('toy-014');   // [{ x, y, z, color }] in build order — a DUCK_BLUEPRINT drop-in
+toyBuildPlan('toy-014');   // the same build as bricks: shape id, rotation, footprint cells
+createToyTargetDatasets(); // train / validation / unseen 4×4×4 targets for trainDQN({ datasets })
+```
+
+`trainDQN` still defaults to the seeded synthetic skylines; pass `datasets` to
+train or evaluate on the toy targets instead. Difficulty tiers there are
+terciles of voxel count *within the toy set*, and the 89 models collapse to 77
+distinct 4×4×4 targets, deduplicated by hash before splitting.
+
+### What the data is and is not
+
+- The front silhouette and its colors are measured. Depth is a heuristic, and
+  everything hidden behind the toy's front face is invented.
+- The palette has no green, brown, or gray, so those photo colors land on the
+  nearest available hue — shape survives quantization, exact color does not.
+  Adding entries to `COLORS` in `src/brick.js` and `TOY_PALETTE` in
+  `src/toys/palette.js` together would improve color fidelity.
+- Support fill buries detail underneath large overhangs (a flower head fills the
+  space down to its pot). That is the cost of a model that can actually be
+  stacked bottom-up.
+
+Regenerate at a different resolution or depth with
+`node scripts/voxelize-toys.js --size 20 --depth-scale 0.8`, and add
+`--preview <dir>` to write photo-vs-model comparison PNGs.
+
+
 ## Guided and Free Build controls
 
 Guided mode supports placing the glowing next brick (`Space`), undo (`Z`),
@@ -96,6 +163,7 @@ undo with `Z`, toggle the duck guide with `G`, and right-click a brick to remove
 npm test
 npm run build
 npm run benchmark
+npm run voxelize   # regenerates src/toys/models.data.js from assets/toys/
 ```
 
 The benchmark runs the complete seeded training and evaluation experiment and
@@ -109,3 +177,8 @@ returns a failing exit code if the generalization threshold is not met.
 - `src/rl/agent.worker.js` — background training and rollout protocol.
 - `src/agentlab.js` — Agent Lab scene state and playback.
 - `src/builder.js` / `freebuilder.js` — existing Guided and Free Build modes.
+- `src/toys/model.js` — toy layer format, brick tiling, and solution validation.
+- `src/toys/palette.js` — photo-pixel → palette-color quantization.
+- `src/toys/dataset.js` — blueprint and DQN-target accessors for the toy models.
+- `src/toys/models.data.js` — generated toy models (do not edit by hand).
+- `scripts/voxelize-toys.js` — image → voxel → brick-solution pipeline.
