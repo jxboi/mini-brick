@@ -1,5 +1,6 @@
 import { COLORS, SHAPES } from './brick.js';
 import { PALETTE } from './freebuilder.js';
+import { blueprintGroups, getBlueprint } from './blueprints.js';
 
 /**
  * Wires the HTML HUD to all three modes. Returns `{ getMode }` so the
@@ -21,6 +22,10 @@ export function createUI(guided, free, agent) {
     hint: $('hud-hint'),
 
     // Guided
+    blueprintSelect: $('blueprint-select'),
+    blueprintThumb: $('blueprint-thumb'),
+    blueprintMeta: $('blueprint-meta'),
+    doneTitle: $('done-title'),
     progressLabel: $('progress-label'),
     progressPercent: $('progress-percent'),
     progressFill: $('progress-fill'),
@@ -101,12 +106,58 @@ export function createUI(guided, free, agent) {
   el.tabFree.addEventListener('click', () => setMode('free'));
   el.tabAgent.addEventListener('click', () => setMode('agent'));
 
+  // ---- Guided panel: the model picker --------------------------------------
+  const GROUP_LABELS = {
+    Classic: 'Classic',
+    easy: 'Toys · Easy',
+    medium: 'Toys · Medium',
+    hard: 'Toys · Hard',
+    unsorted: 'Toys'
+  };
+
+  for (const [group, entries] of blueprintGroups()) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = GROUP_LABELS[group] ?? group;
+    for (const entry of entries) {
+      const option = document.createElement('option');
+      option.value = entry.id;
+      const { width, height, depth } = entry.size;
+      option.textContent = `${entry.name} · ${width}×${height}×${depth} · ${entry.brickCount} bricks`;
+      optgroup.appendChild(option);
+    }
+    el.blueprintSelect.appendChild(optgroup);
+  }
+
+  el.blueprintSelect.addEventListener('change', () => {
+    const entry = getBlueprint(el.blueprintSelect.value);
+    guided.setBlueprint(entry);
+    free.setGuideBlueprint(entry);
+  });
+
   // ---- Guided panel --------------------------------------------------------
+  let shownBlueprintId = null;
+
   guided.onChange((state) => {
     const pct = state.total ? Math.round((state.placed / state.total) * 100) : 0;
     el.progressLabel.textContent = `${state.placed} / ${state.total} bricks`;
     el.progressPercent.textContent = `${pct}%`;
     el.progressFill.style.width = `${pct}%`;
+
+    // Model details only change on a swap, not on every placement.
+    if (state.blueprintId !== shownBlueprintId) {
+      shownBlueprintId = state.blueprintId;
+      const entry = getBlueprint(state.blueprintId);
+      el.blueprintSelect.value = entry.id;
+      el.blueprintThumb.hidden = !entry.thumbnail;
+      if (entry.thumbnail) {
+        el.blueprintThumb.src = entry.thumbnail;
+        el.blueprintThumb.alt = `${entry.name} reference photo`;
+      }
+      const { width, height, depth } = entry.size;
+      el.blueprintMeta.textContent =
+        `${width}×${height}×${depth} · ${entry.brickCount} bricks · ${entry.cellCount} studs`;
+      el.doneTitle.textContent = `${entry.name} complete!`;
+    }
 
     if (state.done) {
       el.nextPanel.hidden = true;
@@ -203,7 +254,8 @@ export function createUI(guided, free, agent) {
     el.btnFreeRotate.disabled = !state.canRotate;
     el.btnFreeUndo.disabled = state.placed === 0;
     el.btnFreeReset.disabled = state.placed === 0;
-    el.btnGuide.textContent = state.guideOn ? 'Hide Duck Guide' : 'Show Duck Guide';
+    const guideLabel = state.guideName ? `${state.guideName} Guide` : 'Guide';
+    el.btnGuide.textContent = state.guideOn ? `Hide ${guideLabel}` : `Show ${guideLabel}`;
     el.btnGuide.classList.toggle('is-active', state.guideOn);
   });
 
@@ -309,7 +361,7 @@ export function createUI(guided, free, agent) {
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
     if (e.code === 'KeyM') {
       const modes = ['guided', 'free', 'agent'];

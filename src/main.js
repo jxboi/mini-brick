@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createScene } from './scene.js';
+import { createScene, frameStructure } from './scene.js';
 import { Builder } from './builder.js';
 import { FreeBuilder } from './freebuilder.js';
 import { AgentLab } from './agentlab.js';
@@ -19,6 +19,17 @@ free.setActive(false);
 agent.setActive(false);
 
 const ui = createUI(guided, free, agent);
+
+// ---- Camera framing --------------------------------------------------------
+// Models range from the 5x5x11 duck to 16x16x16 toys, so the camera is re-fit
+// whenever the selection changes — and only then, since guided state also emits
+// on every brick placed.
+let framedBlueprintId = null;
+guided.onChange((state) => {
+  if (state.blueprintId === framedBlueprintId) return;
+  framedBlueprintId = state.blueprintId;
+  frameStructure(camera, controls, scene, state.size);
+});
 
 // ---- Shared raycasting -----------------------------------------------------
 const raycaster = new THREE.Raycaster();
