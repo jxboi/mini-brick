@@ -9,13 +9,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "benchmark": "node scripts/benchmark.js"
+    "benchmark": "node scripts/benchmark.js",
+    "voxelize": "node scripts/voxelize-toys.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
     "three": "^0.169.0"
   },
   "devDependencies": {
+    "sharp": "^0.35.3",
     "vite": "^5.4.0",
     "vitest": "^4.1.11"
   }
